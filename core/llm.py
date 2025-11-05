@@ -1,7 +1,7 @@
 # core/llm.py
 import json
 from pydantic import ValidationError
-from .contracts import Plan
+from .contracts import ToolCall
 from .tools import TOOLS
 import ollama
 from pathlib import Path
@@ -12,7 +12,7 @@ def _system_prompt() -> str:
     allowed = ", ".join(sorted(TOOLS.keys()))
     return system.replace("{ALLOWED_TOOLS}", allowed)
 
-def plan_from_text(user_text: str, model: str = "llama3.1:8b-instruct") -> Plan:
+def toolcall_from_text(user_text: str, model: str = "llama3.1:8b-instruct") -> ToolCall:
     sys = _system_prompt()
     messages = [
         {"role": "system", "content": sys},
@@ -24,8 +24,8 @@ def plan_from_text(user_text: str, model: str = "llama3.1:8b-instruct") -> Plan:
     # Must be pure JSON per contract; parse + validate
     try:
         obj = json.loads(raw)
-        parsed = Plan.model_validate(obj)  # this also checks scripts against TOOLS
+        parsed = ToolCall.model_validate(obj)  # this also checks scripts against TOOLS
         return parsed
     except (json.JSONDecodeError, ValidationError):
         # Failsafe: say a short fallback and do nothing
-        return Plan(speak_text="Sorry, I didnt get that.", runs=[])
+        return ToolCall(speak_text="Sorry, I didnt get that.", runs=[])
