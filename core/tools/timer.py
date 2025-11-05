@@ -2,6 +2,10 @@
 
 import threading
 import time
+from pydantic import BaseModel
+
+class TimerArgs(BaseModel):
+    minutes: int  # duration in minutes
 
 class Timer:    
     def __init__(self):
@@ -9,12 +13,11 @@ class Timer:
         self.is_running = False
         self.timer_thread = None
         self.timer_id = 0
-        self.callback = None
         self.args = None
         self.kwargs = None
         self.duration = 0
     
-    def set_timer(self, duration, callback):
+    def set_timer(self,args: TimerArgs):
         """
         Set a timer for the specified duration.
         
@@ -27,14 +30,13 @@ class Timer:
             self.cancel_timer()
         
         # Set up the new timer
-        self.duration = duration
-        self.callback = callback
+        self.duration = args.minutes * 60  # convert minutes to seconds
         self.is_running = True
         
         # Start the timer thread
         def run():
             # Wait for the specified duration
-            time.sleep(duration)
+            time.sleep(self.duration)
             # Call the callback function
             self.callback()
             # Mark timer as not running
@@ -43,7 +45,7 @@ class Timer:
         self.timer_thread = threading.Thread(target=run)
         self.timer_thread.daemon = True
         self.timer_thread.start()
-        print(f"New timer set for {duration} seconds.")
+        print(f"New timer set for {self.duration} seconds.")
     
     def cancel_timer(self):
         """Cancel the currently running timer."""
@@ -53,3 +55,9 @@ class Timer:
             if self.timer_thread and self.timer_thread.is_alive():
                 print("Timer canceled.")
             self.is_running = False
+
+    def callback(self):
+        """Callback function to be called when the timer expires."""
+        print("Timer expired!")
+
+TIMER_TOOL = Timer()

@@ -1,4 +1,4 @@
-from .timer import Timer
+from .timer import TIMER_TOOL,TimerArgs
 
 from pydantic import BaseModel, Field
 from typing import Callable, Type
@@ -13,8 +13,8 @@ class ToolSpec(BaseModel):
 TOOLS: dict[str, ToolSpec] = {"timer": ToolSpec(
     name="timer",
     desc="A tool for measuring time intervals",
-    args_schema=BaseModel,
-    run=Timer.set_timer #obviously not correct but serves as a placeholder
+    args_schema=TimerArgs,
+    run=TIMER_TOOL.set_timer
 )}
 
 __all__ = ["TOOLS"]
