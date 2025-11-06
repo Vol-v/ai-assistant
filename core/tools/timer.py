@@ -1,63 +1,60 @@
 #timer functionality implementation
 
+import asyncio
 import threading
 import time
+from typing import Any, Awaitable, Callable, Optional, Union
 from pydantic import BaseModel
 
 class TimerArgs(BaseModel):
     minutes: int  # duration in minutes
 
-class Timer:    
-    def __init__(self):
-        """Initialize the timer."""
-        self.is_running = False
-        self.timer_thread = None
-        self.timer_id = 0
-        self.args = None
-        self.kwargs = None
-        self.duration = 0
-    
-    def set_timer(self,args: TimerArgs):
-        """
-        Set a timer for the specified duration.
-        
-        Args:
-            duration: The time in seconds to wait before calling the callback
-            callback: The function to call when the timer expires
-        """
-        # Cancel any existing timer
-        if self.is_running:
-            self.cancel_timer()
-        
-        # Set up the new timer
-        self.duration = args.minutes * 60  # convert minutes to seconds
-        self.is_running = True
-        
-        # Start the timer thread
-        def run():
-            # Wait for the specified duration
-            time.sleep(self.duration)
-            # Call the callback function
-            self.callback()
-            # Mark timer as not running
-            self.is_running = False
-        
-        self.timer_thread = threading.Thread(target=run)
-        self.timer_thread.daemon = True
-        self.timer_thread.start()
-        print(f"New timer set for {self.duration} seconds.")
-    
-    def cancel_timer(self):
-        """Cancel the currently running timer."""
-        if self.is_running:
-            self.is_running = False
-            # Note: We can't actually stop a thread that's sleeping, but we'll mark it as canceled
-            if self.timer_thread and self.timer_thread.is_alive():
-                print("Timer canceled.")
-            self.is_running = False
+ExpireCallback = Callable[[int], Awaitable[Any]]
 
-    def callback(self):
-        """Callback function to be called when the timer expires."""
-        print("Timer expired!")
+
+class Timer:    
+    def __init__(self,on_expire: Optional[ExpireCallback] = None):
+        self._task: Optional[asyncio.Task] = None
+        self._duration: int = 0  # duration in seconds
+        self._started_at: float = 0.0
+        self._on_expire = on_expire
+    
+
+    def is_running(self) -> bool:
+        return self._task is not None and not self._task.done()
+    
+    def remaining(self) -> float:
+        if not self.is_running():
+            return 0.0
+        elapsed = time.monotonic() - self._started_at
+        return max(0.0, self._duration - elapsed)
+    
+    def cancel_timer(self) -> dict:
+        if self._task and not self._task.done():
+            self._task.cancel()
+            return {"ok": True, "canceled": True}
+        return {"ok": True, "canceled": False, "reason": "no_active_timer"}
+    
+    def set_timer(self, args: TimerArgs) -> dict:
+        if self._on_expire is None:
+            raise RuntimeError("Timer on_expire callback is not set")
+
+        # Replace any existing timer TODO: do we need multiple timers?
+        self.cancel_timer()
+
+        self._minutes = int(args.minutes)
+        self._duration_s = float(self._minutes * 60)
+        self._started_at = time.monotonic()
+
+        async def _run():
+            try:
+                await asyncio.sleep(self._duration_s)
+            except asyncio.CancelledError:
+                return
+            await self._on_expire(self._minutes)
+
+        self._task = asyncio.create_task(_run(), name=f"timer_{self._minutes}m")
+
+        return {"ok": True, "scheduled_minutes": self._minutes}
 
 TIMER_TOOL = Timer()
