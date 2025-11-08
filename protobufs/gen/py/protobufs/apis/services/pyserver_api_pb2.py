@@ -25,14 +25,14 @@ _sym_db = _symbol_database.Default()
 from protobufs.apis.models import task_pb2 as protobufs_dot_apis_dot_models_dot_task__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n*protobufs/apis/services/pyserver_api.proto\x12\x0c\x61ssistant.v1\x1a protobufs/apis/models/task.proto\"6\n\x0eRunTaskRequest\x12$\n\x04\x63\x61ll\x18\x01 \x01(\x0b\x32\x16.assistant.v1.ToolCall\"\x8c\x02\n\x0fRunTaskResponse\x12\x34\n\x06status\x18\x01 \x01(\x0e\x32$.assistant.v1.RunTaskResponse.Status\x12\x15\n\rerror_message\x18\x02 \x01(\t\x12\x39\n\x06output\x18\x03 \x03(\x0b\x32).assistant.v1.RunTaskResponse.OutputEntry\x1a-\n\x0bOutputEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"B\n\x06Status\x12\x16\n\x12STATUS_UNSPECIFIED\x10\x00\x12\r\n\tSTATUS_OK\x10\x01\x12\x11\n\rSTATUS_FAILED\x10\x02\x32]\n\x13PythonWorkerService\x12\x46\n\x07RunTask\x12\x1c.assistant.v1.RunTaskRequest\x1a\x1d.assistant.v1.RunTaskResponseBQZOhttps://github.com/Vol-v/ai-assistant/protobufs/gen/go/apis/services;servicespbb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n*protobufs/apis/services/pyserver_api.proto\x12\x0c\x61ssistant.v1\x1a protobufs/apis/models/task.proto\"6\n\x0eRunTaskRequest\x12$\n\x04\x63\x61ll\x18\x01 \x01(\x0b\x32\x16.assistant.v1.ToolCall\"\x8c\x02\n\x0fRunTaskResponse\x12\x34\n\x06status\x18\x01 \x01(\x0e\x32$.assistant.v1.RunTaskResponse.Status\x12\x15\n\rerror_message\x18\x02 \x01(\t\x12\x39\n\x06output\x18\x03 \x03(\x0b\x32).assistant.v1.RunTaskResponse.OutputEntry\x1a-\n\x0bOutputEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"B\n\x06Status\x12\x16\n\x12STATUS_UNSPECIFIED\x10\x00\x12\r\n\tSTATUS_OK\x10\x01\x12\x11\n\rSTATUS_FAILED\x10\x02\x32]\n\x13PythonWorkerService\x12\x46\n\x07RunTask\x12\x1c.assistant.v1.RunTaskRequest\x1a\x1d.assistant.v1.RunTaskResponseBIZGgithub.com/Vol-v/ai-assistant/protobufs/gen/go/apis/services;servicespbb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'protobufs.apis.services.pyserver_api_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
-  _globals['DESCRIPTOR']._serialized_options = b'ZOhttps://github.com/Vol-v/ai-assistant/protobufs/gen/go/apis/services;servicespb'
+  _globals['DESCRIPTOR']._serialized_options = b'ZGgithub.com/Vol-v/ai-assistant/protobufs/gen/go/apis/services;servicespb'
   _globals['_RUNTASKRESPONSE_OUTPUTENTRY']._loaded_options = None
   _globals['_RUNTASKRESPONSE_OUTPUTENTRY']._serialized_options = b'8\001'
   _globals['_RUNTASKREQUEST']._serialized_start=94
