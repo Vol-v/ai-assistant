@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package assistant.v1;
+
+option go_package = "github.com/Vol-v/ai-assistant/protobufs/gen/go/apis/services;servicespb";
+
+
+import "protobufs/apis/models/task.proto";
+
+
+
+service PythonWorkerService {
+  rpc RunTask (RunTaskRequest) returns (RunTaskResponse);
+}
+
+message RunTaskRequest { ToolCall call = 1; }
+
+message RunTaskResponse {
+  enum Status { STATUS_UNSPECIFIED = 0; STATUS_OK = 1; STATUS_FAILED = 2; }
+  Status status = 1;
+  string error_message = 2;
+  map<string, string> output = 3; // simple structured result (optional)
+}

@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package assistant.v1;
+
+option go_package = "github.com/Vol-v/ai-assistant/protobufs/gen/go/apis/models;modelspb";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
+
+
+message SpeakArgs {
+  string text = 1;
+  string voice_id = 2; // optional
+}
+
+message TimerArgs {
+  int32 minutes = 1;
+  string label = 2;
+}
+
+message PlaySoundArgs {
+  string sound_id = 1; // e.g. "ding", "alarm1"
+  int32 repeat = 2;    // optional
+}
+
+// Add more tools over time:
+// message CalendarNoteArgs { string text = 1; google.protobuf.Timestamp when = 2; string calendar_id = 3; }
+// message OpenAppArgs { string app = 1; repeated string args = 2; }
+// ...
+
+message ToolCall {
+  oneof payload {
+    SpeakArgs speak         = 1;
+    TimerArgs timer         = 2;
+    PlaySoundArgs play_sound= 3;
+  }
+}
+
+// ---------- Triggering (when to run) ----------
+
+message Recurrence {
+  string cron = 1;      // e.g., "0 10 * * *"
+  bool catch_up = 2;    // fire missed occurrences on resume
+}
+
+message Trigger {
+  oneof time {
+    google.protobuf.Timestamp at = 1;  // wall clock
+    google.protobuf.Duration delay = 2; // relative
+  }
+  Recurrence recurrence = 10; // optional
+}
+
+// Priority is still useful when many tasks are due simultaneously.
+enum Priority {
+  PRIORITY_UNSPECIFIED = 0;
+  PRIORITY_HIGH = 1;
+  PRIORITY_NORMAL = 2;
+  PRIORITY_LOW = 3;
+}
+
+message Task {
+  string task_id = 1;   // assigned by scheduler if empty
+  ToolCall call  = 2;
+  Priority priority = 3;
+
+  // Optional metadata for tracing
+  map<string, string> meta = 20;
+}

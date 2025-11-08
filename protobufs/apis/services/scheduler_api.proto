@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package assistant.v1;
+
+option go_package = "github.com/Vol-v/ai-assistant/protobufs/gen/go/apis/services;servicespb";
+
+import "google/protobuf/timestamp.proto";
+import "protobufs/apis/models/task.proto";
+
+service SchedulerService {
+  rpc ScheduleTask (ScheduleTaskRequest) returns (ScheduleTaskResponse);
+  rpc CancelTask   (CancelTaskRequest)   returns (CancelTaskResponse);
+  rpc ListTasks    (ListTasksRequest)    returns (ListTasksResponse);
+  rpc GetTask      (GetTaskRequest)      returns (GetTaskResponse);
+}
+
+message ScheduleTaskRequest {
+  Task task = 1;
+  Trigger trigger = 2;
+}
+
+message ScheduleTaskResponse {
+  string task_id = 1;
+  google.protobuf.Timestamp next_fire_time = 2;
+}
+
+message CancelTaskRequest { string task_id = 1; }
+message CancelTaskResponse { bool canceled = 1; }
+
+message ListTasksRequest {
+  int32 limit = 1;
+  google.protobuf.Timestamp not_before = 2;
+  // Optional filter by which tool types (field presence filters)
+  bool include_speak = 10;
+  bool include_timer = 11;
+  bool include_play_sound = 12;
+}
+
+message TaskSummary {
+  string task_id = 1;
+  Priority priority = 2;
+  google.protobuf.Timestamp next_fire_time = 3;
+  string timezone = 4;
+  // Which tool this is (derived from 'oneof' discriminator):
+  string tool = 5; // e.g. "speak", "timer"
+  map<string, string> meta = 6;
+}
+
+message ListTasksResponse { repeated TaskSummary tasks = 1; }
+
+message GetTaskRequest { string task_id = 1; }
+message GetTaskResponse {
+  Task task = 1;
+  Trigger trigger = 2;
+  google.protobuf.Timestamp next_fire_time = 3;
+}
