@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Dict, Optional, Literal, Any
 
 from pydantic import BaseModel, Field, model_validator
-
+from protobufs.gen.py.protobufs.apis.models import task_pb2 as models_pb       
 
 # ---- Proto-parallel enums/messages ----
 
@@ -71,33 +71,15 @@ class ToolCallModel(BaseModel):
             return "timer"
         return "play_sound"
 
-    # ---- Proto conversion helpers ----
-    def to_proto(self, pb) -> "pb.ToolCall":
-        """
-        Convert to protobuf ToolCall. Pass the generated module as `pb`, e.g.:
-          from assistant.v1 import assistant_pb2 as pb
-          # or: from apis.models import task_pb2 as pb
-        """
-        call = pb.ToolCall()
-        if self.speak:
-            call.speak.CopyFrom(pb.SpeakArgs(text=self.speak.text, voice_id=self.speak.voice_id or ""))
-        elif self.timer:
-            call.timer.CopyFrom(pb.TimerArgs(minutes=self.timer.minutes, label=self.timer.label or ""))
+    def to_proto(self) -> models_pb.ToolCall:
+        call = models_pb.ToolCall()
+        if self.speak is not None:
+            call.speak.CopyFrom(models_pb.SpeakArgs(**self.speak))
+        elif self.timer is not None:
+            call.timer.CopyFrom(models_pb.TimerArgs(**self.timer))
         else:
-            ps = self.play_sound
-            call.play_sound.CopyFrom(pb.PlaySoundArgs(sound_id=ps.sound_id, repeat=ps.repeat or 0))
+            call.play_sound.CopyFrom(models_pb.PlaySoundArgs(**self.play_sound))
         return call
-
-    @staticmethod
-    def from_proto(call_pb) -> "ToolCallModel":
-        which = call_pb.WhichOneof("payload")
-        if which == "speak":
-            return ToolCallModel(speak=SpeakArgsModel(text=call_pb.speak.text, voice_id=call_pb.speak.voice_id or None))
-        if which == "timer":
-            return ToolCallModel(timer=TimerArgsModel(minutes=call_pb.timer.minutes, label=call_pb.timer.label or None))
-        if which == "play_sound":
-            return ToolCallModel(play_sound=PlaySoundArgsModel(sound_id=call_pb.play_sound.sound_id, repeat=call_pb.play_sound.repeat or 0))
-        raise ValueError("Empty ToolCall payload")
 
 
 class TaskModel(BaseModel):
@@ -115,13 +97,13 @@ class TaskModel(BaseModel):
     priority: Priority = Priority.PRIORITY_NORMAL
     meta: Dict[str, str] = Field(default_factory=dict)
 
-    def to_proto(self, pb) -> "pb.Task":
-        task = pb.Task()
+    def to_proto(self) -> "models_pb.Task":
+        task = models_pb.Task()
         if self.task_id:
             task.task_id = self.task_id
-        task.call.CopyFrom(self.call.to_proto(pb))
+        task.call.CopyFrom(self.call.to_proto())
         # Map Priority enum strings to proto enum values
-        task.priority = getattr(pb.Priority, self.priority)
+        task.priority = getattr(models_pb.Priority, self.priority)
         if self.meta:
             task.meta.update(self.meta)
         return task
