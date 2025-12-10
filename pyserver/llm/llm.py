@@ -1,8 +1,8 @@
 # core/llm.py
 import json
 from pydantic import ValidationError
-from .contracts import ToolCall
-from .tools import TOOLS
+from .models import ToolCall
+from ...tools import TOOLS
 import ollama
 from pathlib import Path
 
