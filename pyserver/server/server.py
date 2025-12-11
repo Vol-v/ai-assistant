@@ -4,6 +4,7 @@ import logging
 from typing import Optional
 
 import grpc
+import pyttsx3
 
 import protobufs.gen.py.protobufs.apis.services.pyserver_api_pb2 as pb
 import protobufs.gen.py.protobufs.apis.services.pyserver_api_pb2_grpc as rpc
@@ -15,14 +16,13 @@ import protobufs.gen.py.protobufs.apis.models.task_pb2 as models_pb
 # ---------------------------
 
 class TTSQueue:
-    """
-    Serializes speech so multiple SPEAK tasks don't overlap.
-    Replace _speak_impl() with Piper/Coqui/etc. later.
-    """
     def __init__(self) -> None:
         self._q: asyncio.Queue[models_pb.SpeakArgs] = asyncio.Queue()
         self._worker: Optional[asyncio.Task] = None
         self._log = logging.getLogger("TTSQueue")
+        # init pyttsx3
+        self._engine = pyttsx3.init()
+        self._engine.setProperty("rate", 180)  # tweak later
 
     async def start(self) -> None:
         if self._worker is None:
@@ -49,12 +49,21 @@ class TTSQueue:
             except Exception as e:
                 self._log.exception("TTS failed: %s", e)
 
-    async def _speak_impl(self, args: pb.SpeakArgs) -> None:
-        # DEV placeholder: synchronous print simulates speech latency.
-        # Swap with Piper/Coqui wrapper later.
-        self._log.info("[TTS]%s%s", f"({args.voice_id}) " if args.voice_id else "", args.text)
-        # Simulate short blocking while speaking long phrases (optional)
-        await asyncio.sleep(min(0.1 + len(args.text) / 80.0, 2.0))
+    async def _speak_impl(self, args: models_pb.SpeakArgs) -> None:
+        text = args.text
+        self._log.info("[TTS] %s", text)
+        loop = asyncio.get_running_loop()
+        # Run blocking engine in a threadpool
+        def _do():
+            if args.voice_id:
+                for v in self._engine.getProperty("voices"):
+                    if args.voice_id in (v.id, v.name):
+                        self._engine.setProperty("voice", v.id)
+                        break
+            self._engine.say(text)
+            self._engine.runAndWait()
+
+        await loop.run_in_executor(None, _do)
 
 
 
