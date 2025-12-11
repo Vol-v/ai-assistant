@@ -13,8 +13,11 @@ from protobufs.gen.py.protobufs.apis.models import task_pb2 as models_pb
 from protobufs.gen.py.protobufs.apis.services import scheduler_api_pb2 as sched_pb          
 from protobufs.gen.py.protobufs.apis.services import scheduler_api_pb2_grpc as sched_rpc    
 from google.protobuf.duration_pb2 import Duration
+from pyserver.llm.models import ToolCallModel, TaskModel, Tools,SpeakArgsModel,TimerArgsModel,PlaySoundArgsModel
+from pyserver.llm.llm import toolcall_from_text
+from pyserver.clients.scheduler.client import SchedulerClient
 
-from llm.models import ToolCallModel, PlanModel, ActionModel
+from llm.models import ToolCallModel,TaskModel
 AudioFrame = bytes
 
 class WakeDetector(Protocol):
@@ -51,95 +54,6 @@ class MockASR:
         logging.getLogger("ASR").info("Transcript: %r", txt)
         return txt, (0.95 if txt else 0.0)
 
-class MockPlanner:
-    async def plan(self, transcript: str, summary_hint: Optional[str] = None) -> PlanModel:
-        t = transcript.lower()
-        actions: list[ActionModel] = []
-        if "timer" in t:
-            m = re.search(r"(\d+)", t)
-            mins = int(m.group(1)) if m else 10
-            actions.append(ActionModel(tool="speak", args={"text": f"Okay, setting a {mins} minute timer."}, when="now"))
-            actions.append(ActionModel(tool="timer", args={"minutes": mins, "label": "timer"}, when=f"in {mins} minutes"))
-        elif "sound" in t:
-            actions.append(ActionModel(tool="speak", args={"text": "Playing a sound."}, when="now"))
-            actions.append(ActionModel(tool="play_sound", args={"sound_id": "ding", "repeat": 1}, when="now"))
-        else:
-            actions.append(ActionModel(tool="speak", args={"text": f"You said: {transcript}"}, when="now"))
-        return PlanModel(actions=actions)
-
-# ===============================
-#       Scheduler gRPC client
-# ===============================
-class SchedulerClient:
-    def __init__(self, addr: str, secure: bool = False):
-        self._addr = addr
-        self._secure = secure
-        self._ch: Optional[grpc.aio.Channel] = None
-        self._stub: Optional[sched_rpc.SchedulerServiceStub] = None
-
-    async def __aenter__(self) -> "SchedulerClient":
-        await self.start(); return self
-    async def __aexit__(self, *_): await self.close()
-
-    async def start(self):
-        if self._ch is None:
-            self._ch = grpc.aio.secure_channel(self._addr, grpc.local_channel_credentials()) if self._secure \
-                       else grpc.aio.insecure_channel(self._addr)
-            self._stub = sched_rpc.SchedulerServiceStub(self._ch)
-
-    async def close(self):
-        if self._ch:
-            await self._ch.close()
-            self._ch = None
-            self._stub = None
-
-    async def schedule_toolcall_now(self, call: ToolCallModel, *, timezone: Optional[str] = None) -> sched_pb.ScheduleTaskResponse:
-        assert self._stub is not None
-        # Build Task
-        task = models_pb.Task()
-        task.call.CopyFrom(call.to_proto())
-
-        task.priority = models_pb.PRIORITY_NORMAL
-
-        # Trigger: now (delay=0)
-        trig = models_pb.Trigger()
-        d = Duration(); d.FromSeconds(0)
-        trig.delay.CopyFrom(d)
-
-        req = sched_pb.ScheduleTaskRequest(task=task, trigger=trig)
-        return await self._stub.ScheduleTask(req)
-
-    async def schedule_toolcall_when(self, call: ToolCallModel, when: str, *, timezone: Optional[str] = None) -> sched_pb.ScheduleTaskResponse:
-        """
-        Minimal natural 'when' support for now:
-          - "now"
-          - "in N seconds/minutes/hours"
-        Everything else falls back to now.
-        """
-        if when is None or when.strip().lower() == "now":
-            return await self.schedule_toolcall_now(call, timezone=timezone)
-
-        # Very small "in N X" parser
-        m = re.match(r"in\s+(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hour|hours)\b", when.strip().lower())
-        seconds = 0
-        if m:
-            n = int(m.group(1)); unit = m.group(2)[0]
-            if unit == "s": seconds = n
-            elif unit == "m": seconds = n * 60
-            elif unit == "h": seconds = n * 3600
-
-        # Build Task
-        task = models_pb.Task()
-        task.call.CopyFrom(call.to_proto())
-
-        trig = models_pb.Trigger()
-        d = Duration(); d.FromSeconds(max(0, seconds))
-        trig.delay.CopyFrom(d)
-
-        req = sched_pb.ScheduleTaskRequest(task=task, trigger=trig)
-        assert self._stub is not None
-        return await self._stub.ScheduleTask(req)
-
 # ===============================
 #              FSM
 # ===============================
@@ -158,57 +72,76 @@ class ListenerDaemon:
         wake: WakeDetector,
         vad: VAD,
         asr: ASR,
-        planner: Planner,
         cfg: ListenerConfig,
     ) -> None:
-        self.wake = wake; self.vad = vad; self.asr = asr; self.planner = planner; self.cfg = cfg
+        self.wake = wake
+        self.vad = vad
+        self.asr = asr
+        self.cfg = cfg
         self._log = logging.getLogger("Listener")
-        self._ring: list[AudioFrame] = []  # placeholder pre-roll
+        self._ring: list[AudioFrame] = []  # pre-roll placeholder
 
     async def run(self) -> None:
         self._log.info("Connecting to scheduler at %s", self.cfg.scheduler_addr)
-        async with SchedulerClient(self.cfg.scheduler_addr) as sched:
+        async with SchedulerClient(self.cfg.scheduler_addr, timezone=self.cfg.timezone) as sched:
             while True:
+                # IDLE
                 self._log.debug("State=%s", State.IDLE.value)
                 await self.wake.wait_for_hotword()
 
+                # CAPTURE
                 self._log.debug("State=%s", State.CAPTURE.value)
                 frames = await self.vad.stream_until_eou(self._ring)
 
+                # INTERPRET
                 self._log.debug("State=%s", State.INTERPRET.value)
                 transcript, conf = await self.asr.transcribe(frames)
                 if not transcript or conf < self.cfg.min_conf:
-                    await sched.schedule_toolcall_now(ToolCallModel.from_action("speak", {"text": "Sorry, I didn’t catch that."}), timezone=self.cfg.timezone)
+                    await sched.schedule_toolcall_now(
+                        ToolCallModel(speak=SpeakArgsModel(text="Sorry, I didn’t catch that."))
+                    )
                     continue
 
-                plan = await self.planner.plan(transcript)
+                # LLM → ToolCallModel
+                toolcall = toolcall_from_text(transcript)
+                which = toolcall.which()
 
-                # (Optional) quick ack via scheduler so we never overlap audio
-                await sched.schedule_toolcall_now(ToolCallModel.from_action("speak", {"text": "Okay."}), timezone=self.cfg.timezone)
+                # Route by tool type
+                if which == Tools.SPEAK:
+                    # Just schedule speak via scheduler
+                    await sched.schedule_toolcall_now(toolcall)
 
-                # Schedule all actions via the scheduler
-                for action in plan.actions:
-                    call = ToolCallModel.from_action(action.tool, action.args)
-                    when = (action.when or "now").strip().lower()
-                    if when == "now":
-                        await sched.schedule_toolcall_now(call, timezone=self.cfg.timezone)
-                    else:
-                        await sched.schedule_toolcall_when(call, when=when, timezone=self.cfg.timezone)
+                elif which == Tools.TIMER:
+                    # 1) Speak acknowledgement now
+                    minutes = toolcall.timer.minutes
+                    ack = ToolCallModel(speak=SpeakArgsModel(text=f"Okay, setting a {minutes} minute timer."))
+                    await sched.schedule_toolcall_now(ack)
+    
+                    # 2) Schedule the timer toolcall for the future
+                    await sched.schedule_timer(toolcall, minutes=minutes)
 
+                elif which == Tools.PLAY_SOUND:
+                    # Optional: speak ack + play sound now
+                    ack = ToolCallModel(speak=SpeakArgsModel(text="Playing sound."))
+                    await sched.schedule_toolcall_now(ack)
+                    await sched.schedule_toolcall_now(toolcall)
 # ===============================
 #              main
 # ===============================
-async def main():
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+async def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     cfg = ListenerConfig()
     daemon = ListenerDaemon(
         wake=MockWakeDetector(),
         vad=MockVAD(),
         asr=MockASR(),
-        planner=MockPlanner(),  # swap with your real LLM planner
         cfg=cfg,
     )
     await daemon.run()
+
 
 if __name__ == "__main__":
     try:

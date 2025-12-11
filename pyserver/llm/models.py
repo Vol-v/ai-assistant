@@ -1,12 +1,20 @@
 from __future__ import annotations
-
 from enum import Enum
-from typing import Dict, Optional, Literal, Any
+from typing import Optional, Dict, Any
 
 from pydantic import BaseModel, Field, model_validator
-from protobufs.gen.py.protobufs.apis.models import task_pb2 as models_pb       
 
-# ---- Proto-parallel enums/messages ----
+# Import your generated messages once here.
+# Adjust to your path, e.g.:
+# from assistant.v1 import assistant_pb2 as models_pb
+from protobufs.gen.py.protobufs.apis.models import task_pb2 as models_pb
+
+
+class Tools(str, Enum):
+    SPEAK = "speak"
+    TIMER = "timer"
+    PLAY_SOUND = "play_sound"
+
 
 class Priority(str, Enum):
     PRIORITY_UNSPECIFIED = "PRIORITY_UNSPECIFIED"
@@ -44,7 +52,7 @@ class ToolCallModel(BaseModel):
     """
     speak: Optional[SpeakArgsModel] = None
     timer: Optional[TimerArgsModel] = None
-    play_sound: Optional[PlaySoundArgsModel] = Field(default=None, alias="play_sound")
+    play_sound: Optional[PlaySoundArgsModel] = None
 
     @model_validator(mode="after")
     def _validate_oneof(self) -> "ToolCallModel":
@@ -53,33 +61,58 @@ class ToolCallModel(BaseModel):
             raise ValueError("Exactly one of {'speak','timer','play_sound'} must be provided")
         return self
 
-    # Convenience to build from an LLM-normalized action dict
     @staticmethod
-    def from_action(tool: Literal["speak", "timer", "play_sound"], args: Dict[str, Any]) -> "ToolCallModel":
-        if tool == "speak":
+    def from_action(tool: Tools, args: Dict[str, Any]) -> "ToolCallModel":
+        if tool == Tools.SPEAK:
             return ToolCallModel(speak=SpeakArgsModel(**args))
-        if tool == "timer":
+        if tool == Tools.TIMER:
             return ToolCallModel(timer=TimerArgsModel(**args))
-        if tool == "play_sound":
+        if tool == Tools.PLAY_SOUND:
             return ToolCallModel(play_sound=PlaySoundArgsModel(**args))
         raise ValueError(f"Unsupported tool: {tool}")
 
-    def which(self) -> Literal["speak", "timer", "play_sound"]:
+    def which(self) -> Tools:
         if self.speak is not None:
-            return "speak"
+            return Tools.SPEAK
         if self.timer is not None:
-            return "timer"
-        return "play_sound"
+            return Tools.TIMER
+        return Tools.PLAY_SOUND
 
     def to_proto(self) -> models_pb.ToolCall:
         call = models_pb.ToolCall()
         if self.speak is not None:
-            call.speak.CopyFrom(models_pb.SpeakArgs(**self.speak))
+            call.speak.CopyFrom(models_pb.SpeakArgs(**self.speak.model_dump(exclude_none=True)))
         elif self.timer is not None:
-            call.timer.CopyFrom(models_pb.TimerArgs(**self.timer))
+            call.timer.CopyFrom(models_pb.TimerArgs(**self.timer.model_dump(exclude_none=True)))
         else:
-            call.play_sound.CopyFrom(models_pb.PlaySoundArgs(**self.play_sound))
+            call.play_sound.CopyFrom(models_pb.PlaySoundArgs(**self.play_sound.model_dump(exclude_none=True)))
         return call
+
+    @staticmethod
+    def from_proto(call_pb: models_pb.ToolCall) -> "ToolCallModel":
+        which = call_pb.WhichOneof("payload")
+        if which == "speak":
+            return ToolCallModel(
+                speak=SpeakArgsModel(
+                    text=call_pb.speak.text,
+                    voice_id=call_pb.speak.voice_id or None,
+                )
+            )
+        if which == "timer":
+            return ToolCallModel(
+                timer=TimerArgsModel(
+                    minutes=call_pb.timer.minutes,
+                    label=call_pb.timer.label or None,
+                )
+            )
+        if which == "play_sound":
+            return ToolCallModel(
+                play_sound=PlaySoundArgsModel(
+                    sound_id=call_pb.play_sound.sound_id,
+                    repeat=call_pb.play_sound.repeat or 0,
+                )
+            )
+        raise ValueError("Empty ToolCall payload")
 
 
 class TaskModel(BaseModel):
@@ -97,38 +130,23 @@ class TaskModel(BaseModel):
     priority: Priority = Priority.PRIORITY_NORMAL
     meta: Dict[str, str] = Field(default_factory=dict)
 
-    def to_proto(self) -> "models_pb.Task":
+    def to_proto(self) -> models_pb.Task:
         task = models_pb.Task()
         if self.task_id:
             task.task_id = self.task_id
         task.call.CopyFrom(self.call.to_proto())
-        # Map Priority enum strings to proto enum values
-        task.priority = getattr(models_pb.Priority, self.priority)
+        # Map our Enum to the proto enum value (int)
+        task.priority = models_pb.Priority.Value(self.priority.name)
         if self.meta:
             task.meta.update(self.meta)
         return task
 
     @staticmethod
-    def from_proto(task_pb) -> "TaskModel":
-        # Convert proto enum value back to our string Enum name
-        prio_name = task_pb.Priority.Name(task_pb.priority)
+    def from_proto(task_pb: models_pb.Task) -> "TaskModel":
+        prio_name = models_pb.Priority.Name(task_pb.priority)
         return TaskModel(
             task_id=task_pb.task_id or None,
             call=ToolCallModel.from_proto(task_pb.call),
             priority=Priority(prio_name),
             meta=dict(task_pb.meta),
         )
-
-
-# a thin “plan” to collect multiple actions from the LLM
-class ActionModel(BaseModel):
-    tool: Literal["speak", "timer", "play_sound"]
-    args: Dict[str, Any]
-    when: Optional[str] = "now"  # free-form; your router parses to Trigger later
-
-class PlanModel(BaseModel):
-    actions: list[ActionModel]
-    meta: Dict[str, Any] = Field(default_factory=dict)
-
-    def to_tool_calls(self) -> list[ToolCallModel]:
-        return [ToolCallModel.from_action(a.tool, a.args) for a in self.actions]
