@@ -120,7 +120,7 @@ class TaskModel(BaseModel):
         )
 
 
-# Optional: a thin “plan” to collect multiple actions from the LLM
+# a thin “plan” to collect multiple actions from the LLM
 class ActionModel(BaseModel):
     tool: Literal["speak", "timer", "play_sound"]
     args: Dict[str, Any]
